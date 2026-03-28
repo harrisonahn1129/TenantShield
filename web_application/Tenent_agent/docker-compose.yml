@@ -1,0 +1,75 @@
+# TenantShield — Full Stack
+# =========================
+# Full pipeline:  docker compose up --build
+# Mock only:      docker compose --profile mock up mock-server
+#
+# Web UI: http://localhost:8000
+
+services:
+  # ── Data Agent (port 8001) ────────────────────────────
+  # Queries live NYC Open Data. Needs .env with Geoclient keys.
+  data-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Complaint Agent (port 8002) ───────────────────────
+  # HMC citation lookup + complaint generation. No API keys.
+  complaint-agent:
+    build:
+      context: ./complaint_agent
+    ports:
+      - "8002:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Orchestrator (port 8000) ──────────────────────────
+  # Gemini + web UI. Open http://localhost:8000 in browser.
+  orchestrator:
+    build:
+      context: ./orchestrator
+    ports:
+      - "8000:8080"
+    environment:
+      - DATA_AGENT_URL=http://data-agent:8080
+      - COMPLAINT_AGENT_URL=http://complaint-agent:8080
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    depends_on:
+      data-agent:
+        condition: service_healthy
+      complaint-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Mock Server (port 8765) ───────────────────────────
+  # Hardcoded demo data. No external deps.
+  mock-server:
+    build:
+      context: ./mock_server
+    ports:
+      - "8765:8765"
+    profiles:
+      - mock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

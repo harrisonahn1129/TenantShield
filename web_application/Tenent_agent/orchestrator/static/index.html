@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f23">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>TenantShield</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- WELCOME SCREEN                              -->
+<!-- ═══════════════════════════════════════════ -->
+<div id="welcome-screen" class="screen active">
+    <div class="welcome-content">
+        <div class="shield-icon">
+            <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="1.5">
+                <path d="M12 2L3 7v5c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z"/>
+                <path d="M9 12l2 2 4-4" stroke="#34A853" stroke-width="2"/>
+            </svg>
+        </div>
+        <h1>TenantShield</h1>
+        <p class="tagline">AI-Powered Housing Inspector</p>
+        <p class="subtitle">
+            Know your rights. Document violations.<br>
+            Hold landlords accountable.
+        </p>
+
+        <div class="welcome-features">
+            <div class="feature">
+                <span class="feature-icon">🏢</span>
+                <span>Unmask LLC landlords via NYC records</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">📷</span>
+                <span>AI camera analysis for hazard detection</span>
+            </div>
+            <div class="feature">
+                <span class="feature-icon">📋</span>
+                <span>Auto-generate legally cited 311 complaints</span>
+            </div>
+        </div>
+
+        <button id="btn-start" class="btn-primary">Start Inspection</button>
+
+        <select id="language-select">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="zh">中文</option>
+            <option value="ru">Русский</option>
+            <option value="ko">한국어</option>
+        </select>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- INSPECTION SCREEN                           -->
+<!-- ═══════════════════════════════════════════ -->
+<div id="inspection-screen" class="screen">
+
+    <!-- Camera container (top section) -->
+    <div id="camera-section">
+        <video id="camera-preview" autoplay playsinline muted></video>
+        <canvas id="camera-canvas"></canvas>
+
+        <!-- Camera placeholder when off -->
+        <div id="camera-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1.5">
+                <rect x="2" y="5" width="20" height="14" rx="2"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <p>Tap the camera button to start</p>
+        </div>
+
+        <!-- Scan brackets -->
+        <div class="scan-bracket tl"></div>
+        <div class="scan-bracket tr"></div>
+        <div class="scan-bracket bl"></div>
+        <div class="scan-bracket br"></div>
+
+        <!-- Status pill -->
+        <div id="status-pill">
+            <span id="status-dot"></span>
+            <span id="status-text">Connecting...</span>
+        </div>
+
+        <!-- Emergency button -->
+        <button id="btn-emergency" class="hidden">Emergency</button>
+
+        <!-- Hazard badge -->
+        <div id="hazard-badge" class="hidden">
+            <div id="hazard-class-text">Class C</div>
+            <div id="hazard-type-text">Immediately hazardous</div>
+        </div>
+
+        <!-- Camera toggle -->
+        <button id="btn-camera-toggle" class="hidden" title="Toggle camera">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="5" width="20" height="14" rx="2"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Chat area (bottom section) -->
+    <div id="chat-section">
+        <div id="chat-messages"></div>
+
+        <!-- Input bar -->
+        <div id="input-bar">
+            <input type="text" id="chat-input" placeholder="Type your address or message..."
+                   autocomplete="off" enterkeyhint="send">
+            <button id="btn-send" title="Send">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- OWNER REVEAL MODAL                          -->
+<!-- ═══════════════════════════════════════════ -->
+<div id="owner-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div id="owner-content"></div>
+        <button class="modal-close" onclick="closeModal('owner-modal')">Got it</button>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- EMERGENCY PANEL                             -->
+<!-- ═══════════════════════════════════════════ -->
+<div id="emergency-panel" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-sheet emergency-sheet">
+        <div class="modal-handle"></div>
+        <h2 class="emergency-title">Emergency Contacts</h2>
+        <p id="emergency-reason" class="emergency-reason"></p>
+        <div class="emergency-contacts">
+            <a href="tel:2128638003" class="contact-card">
+                <span class="contact-icon">🏛️</span>
+                <span class="contact-name">HPD Emergency</span>
+                <span class="contact-number">212-863-8003</span>
+            </a>
+            <a href="tel:311" class="contact-card">
+                <span class="contact-icon">📞</span>
+                <span class="contact-name">NYC 311</span>
+                <span class="contact-number">311</span>
+            </a>
+            <a href="tel:2129794800" class="contact-card">
+                <span class="contact-icon">⚖️</span>
+                <span class="contact-name">Met Council on Housing</span>
+                <span class="contact-number">212-979-4800</span>
+            </a>
+            <a href="tel:2129621500" class="contact-card">
+                <span class="contact-icon">🏠</span>
+                <span class="contact-name">Legal Aid Housing</span>
+                <span class="contact-number">212-962-1500</span>
+            </a>
+        </div>
+        <button class="modal-close" onclick="closeModal('emergency-panel')">Close</button>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- COMPLAINT MODAL                             -->
+<!-- ═══════════════════════════════════════════ -->
+<div id="complaint-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-sheet complaint-sheet">
+        <div class="modal-handle"></div>
+        <h2 class="complaint-title">311 Complaint Ready</h2>
+        <div id="complaint-content"></div>
+        <div class="complaint-actions">
+            <button id="btn-download-complaint" class="btn-primary">Download Complaint</button>
+            <button class="modal-close" onclick="closeModal('complaint-modal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
