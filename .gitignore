@@ -1,0 +1,17 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+
+# Mobile application (Android-specific ignores are in mobile_application/.gitignore)
+mobile_application/local.properties
+mobile_application/app/src/main/assets/service-account.json
+mobile_application/app/google-services.json
+mobile_application/.gradle/
+mobile_application/build/
+mobile_application/app/build/
+mobile_application/*.jks
+mobile_application/*.keystore
