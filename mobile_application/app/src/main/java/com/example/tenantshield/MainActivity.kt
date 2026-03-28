@@ -196,6 +196,9 @@ fun TenantShieldApp(inspectionViewModel: InspectionViewModel = viewModel()) {
                 TenantShieldBottomBar(currentDestination) { dest ->
                     if (!isLoggedIn && (dest == AppDestination.INSPECT || dest == AppDestination.REPORTS)) {
                         showLoginWarning = true
+                    } else if (dest == AppDestination.INSPECT) {
+                        inspectionViewModel.startInspectionFlow()
+                        navigateTo(dest)
                     } else {
                         navigateTo(dest)
                     }
