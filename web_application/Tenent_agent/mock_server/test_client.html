@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TenantShield — Test Client</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #0a0a0f;
+      color: #e4e4e7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      width: 100%;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .logo h1 {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(90deg, #f59e0b, #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .logo span {
+      font-size: 12px;
+      color: #71717a;
+      font-weight: 400;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-badge.disconnected {
+      background: rgba(239, 68, 68, 0.12);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .status-badge.connected {
+      background: rgba(34, 197, 94, 0.12);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-badge.connected .status-dot {
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .connect-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .connect-bar input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.05);
+      color: #e4e4e7;
+      font-family: 'Inter', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .connect-bar input:focus {
+      border-color: rgba(245, 158, 11, 0.5);
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .btn-connect {
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      color: white;
+    }
+
+    .btn-connect:hover { transform: scale(1.03); }
+    .btn-connect:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-disconnect {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 20px;
+    }
+
+    .msg {
+      border-radius: 14px;
+      padding: 14px 16px;
+      animation: slideIn 0.3s ease-out;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .msg-text {
+      background: rgba(59, 130, 246, 0.08);
+      border-color: rgba(59, 130, 246, 0.15);
+    }
+    .msg-text .msg-label {
+      color: #60a5fa;
+      background: rgba(59, 130, 246, 0.15);
+    }
+    .msg-text .msg-body { color: #c4cfe8; line-height: 1.6; font-size: 14px; }
+
+    .msg-data {
+      background: rgba(139, 92, 246, 0.08);
+      border-color: rgba(139, 92, 246, 0.15);
+    }
+    .msg-data .msg-label {
+      color: #a78bfa;
+      background: rgba(139, 92, 246, 0.15);
+    }
+
+    .msg-hazard {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .msg-hazard .msg-label {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.2);
+    }
+
+    .msg-action {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+    .msg-action .msg-label {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.2);
+    }
+
+    .msg-complaint {
+      background: rgba(34, 197, 94, 0.08);
+      border-color: rgba(34, 197, 94, 0.2);
+    }
+    .msg-complaint .msg-label {
+      color: #4ade80;
+      background: rgba(34, 197, 94, 0.15);
+    }
+
+    .msg-system {
+      background: rgba(255,255,255,0.03);
+      border-color: rgba(255,255,255,0.06);
+      text-align: center;
+    }
+    .msg-system .msg-body {
+      color: #71717a;
+      font-size: 12px;
+    }
+
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 16px;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .data-grid dt {
+      color: #71717a;
+      font-weight: 500;
+    }
+
+    .data-grid dd {
+      color: #e4e4e7;
+      font-weight: 600;
+    }
+
+    .hazard-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .hazard-C {
+      background: linear-gradient(135deg, #dc2626, #991b1b);
+      color: white;
+      box-shadow: 0 0 20px rgba(220, 38, 38, 0.4);
+    }
+
+    .hazard-B {
+      background: linear-gradient(135deg, #f59e0b, #b45309);
+      color: white;
+    }
+
+    .hazard-A {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: white;
+    }
+
+    .complaint-section {
+      margin-top: 8px;
+      padding: 10px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .complaint-section h4 {
+      color: #4ade80;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .complaint-section ul {
+      padding-left: 16px;
+      color: #a1a1aa;
+      line-height: 1.6;
+    }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #3f3f46;
+      gap: 12px;
+    }
+
+    .empty-state .icon { font-size: 48px; }
+    .empty-state p { font-size: 14px; }
+
+    pre {
+      font-size: 11px;
+      color: #a1a1aa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 6px;
+      padding: 8px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+    }
+
+    .chat-bar {
+      display: flex;
+      gap: 8px;
+      padding: 12px 0 4px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .chat-bar input {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: #e4e4e7;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .chat-bar input:focus {
+      border-color: rgba(59, 130, 246, 0.5);
+    }
+
+    .chat-bar input:disabled {
+      opacity: 0.4;
+    }
+
+    .btn-send {
+      padding: 12px 20px;
+      border-radius: 12px;
+      border: none;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .btn-send:hover { transform: scale(1.03); }
+    .btn-send:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .msg-user {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.25);
+      align-self: flex-end;
+      max-width: 85%;
+    }
+    .msg-user .msg-label {
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.2);
+    }
+    .msg-user .msg-body { color: #dbeafe; line-height: 1.6; font-size: 14px; }
+
+    .camera-section {
+      position: relative;
+      margin-bottom: 12px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #111;
+      display: none;
+    }
+
+    .camera-section.active { display: block; }
+
+    .camera-section video {
+      width: 100%;
+      border-radius: 14px;
+      display: block;
+    }
+
+    .camera-overlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .camera-badge {
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+
+    .camera-badge.recording {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.3);
+      animation: pulse 1.5s infinite;
+    }
+
+    .btn-camera {
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(74, 222, 128, 0.3);
+      background: rgba(34, 197, 94, 0.12);
+      color: #4ade80;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .btn-camera:hover { background: rgba(34, 197, 94, 0.2); }
+    .btn-camera:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-camera.active {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    <div>
+      <h1>TenantShield</h1>
+      <span>Test Client</span>
+    </div>
+  </div>
+  <div id="statusBadge" class="status-badge disconnected">
+    <div class="status-dot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+</header>
+
+<div class="container">
+  <div class="connect-bar">
+    <input id="urlInput" type="text" value="ws://localhost:8000/ws/inspect" />
+    <button id="connectBtn" class="btn btn-connect" onclick="toggleConnection()">Connect</button>
+  </div>
+
+  <div id="cameraSection" class="camera-section">
+    <video id="cameraPreview" autoplay playsinline muted></video>
+    <canvas id="cameraCanvas" style="display:none"></canvas>
+    <div class="camera-overlay">
+      <div id="cameraBadge" class="camera-badge">📷 Camera Ready</div>
+    </div>
+  </div>
+
+  <div id="messages" class="messages">
+    <div class="empty-state">
+      <div class="icon">📡</div>
+      <p>Click <strong>Connect</strong> to start the AI inspection</p>
+    </div>
+  </div>
+
+  <div class="chat-bar">
+    <button id="cameraBtn" class="btn-camera" onclick="toggleCamera()" disabled>📷 Camera</button>
+    <input id="chatInput" type="text" placeholder="Type your address or message..." disabled
+           onkeydown="if(event.key==='Enter')sendChat()" />
+    <button id="sendBtn" class="btn-send" onclick="sendChat()" disabled>Send</button>
+  </div>
+</div>
+
+<script>
+  let ws = null;
+  let connected = false;
+
+  function toggleConnection() {
+    if (connected) {
+      disconnect();
+    } else {
+      connect();
+    }
+  }
+
+  function connect() {
+    const url = document.getElementById('urlInput').value;
+    document.getElementById('messages').innerHTML = '';
+    addSystemMsg('Connecting to ' + url + '...');
+
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      addSystemMsg('❌ Failed to create WebSocket: ' + e.message);
+      return;
+    }
+
+    ws.onopen = () => {
+      connected = true;
+      updateStatus(true);
+      addSystemMsg('✅ Connected!');
+
+      // Send start message
+      const startMsg = {
+        type: 'start',
+        language: 'en',
+        session_id: crypto.randomUUID ? crypto.randomUUID() : 'test-' + Date.now()
+      };
+      ws.send(JSON.stringify(startMsg));
+      addSystemMsg('Sent start message — waiting for AI...');
+      document.getElementById('chatInput').disabled = false;
+      document.getElementById('sendBtn').disabled = false;
+      document.getElementById('cameraBtn').disabled = false;
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      } catch (e) {
+        addSystemMsg('⚠️ Non-JSON message: ' + event.data);
+      }
+    };
+
+    ws.onclose = () => {
+      connected = false;
+      updateStatus(false);
+      addSystemMsg('Connection closed.');
+    };
+
+    ws.onerror = (err) => {
+      addSystemMsg('❌ WebSocket error — is the mock server running?');
+    };
+  }
+
+  function sendChat() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !connected || !ws) return;
+
+    // Show user message in UI
+    const el = document.createElement('div');
+    el.className = 'msg msg-user';
+    el.innerHTML = `
+      <div class="msg-label">🧑 You</div>
+      <div class="msg-body">${escapeHtml(text)}</div>
+    `;
+    appendMsg(el);
+
+    // Send to server
+    ws.send(JSON.stringify({ type: 'text', content: text }));
+    input.value = '';
+  }
+
+  function disconnect() {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+    connected = false;
+    updateStatus(false);
+    document.getElementById('chatInput').disabled = true;
+    document.getElementById('sendBtn').disabled = true;
+    document.getElementById('cameraBtn').disabled = true;
+    stopCamera();
+  }
+
+  function updateStatus(isConnected) {
+    const badge = document.getElementById('statusBadge');
+    const text = document.getElementById('statusText');
+    const btn = document.getElementById('connectBtn');
+
+    if (isConnected) {
+      badge.className = 'status-badge connected';
+      text.textContent = 'Connected';
+      btn.textContent = 'Disconnect';
+      btn.className = 'btn btn-disconnect';
+    } else {
+      badge.className = 'status-badge disconnected';
+      text.textContent = 'Disconnected';
+      btn.textContent = 'Connect';
+      btn.className = 'btn btn-connect';
+    }
+  }
+
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'text':
+        addTextMsg(msg.content);
+        break;
+      case 'data':
+        addDataMsg(msg.content);
+        break;
+      case 'hazard':
+        addHazardMsg(msg);
+        break;
+      case 'action':
+        addActionMsg(msg);
+        break;
+      case 'complaint':
+        addComplaintMsg(msg.content);
+        break;
+      case 'error':
+        addSystemMsg('❌ Error [' + msg.code + ']: ' + msg.message);
+        break;
+      default:
+        addSystemMsg('Unknown type: ' + msg.type);
+    }
+  }
+
+  function addTextMsg(content) {
+    if (!content) return;
+    const el = document.createElement('div');
+    el.className = 'msg msg-text';
+    el.innerHTML = `
+      <div class="msg-label">💬 Agent Speech</div>
+      <div class="msg-body">${escapeHtml(content)}</div>
+    `;
+    appendMsg(el);
+  }
+
+  function addDataMsg(data) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-data';
+    el.innerHTML = `
+      <div class="msg-label">🏢 Building Data</div>
+      <dl class="data-grid">
+        <dt>Address</dt><dd>${escapeHtml(data.address || '—')}</dd>
+        <dt>Owner</dt><dd>${escapeHtml(data.owner_name || '—')}</dd>
+        <dt>Corporation</dt><dd>${escapeHtml(data.corporation_name || '—')}</dd>
+        <dt>Manager</dt><dd>${escapeHtml(data.manager_name || '—')}</dd>
+        <dt>Open Violations</dt><dd style="color:#f87171;font-size:16px">${data.open_violations || 0}</dd>
+        <dt>Class C (Hazardous)</dt><dd style="color:#ef4444;font-size:16px">${data.class_c_count || 0}</dd>
+        <dt>Complaints</dt><dd>${data.complaints_count || 0}</dd>
+        <dt>Days Neglected</dt><dd style="color:#fbbf24">${data.days_neglected || 0}</dd>
+      </dl>
+      <pre>${JSON.stringify(data, null, 2)}</pre>
+    `;
+    appendMsg(el);
+  }
+
+  function addHazardMsg(msg) {
+    const cls = msg.hazard_class || 'C';
+    const el = document.createElement('div');
+    el.className = 'msg msg-hazard';
+    el.innerHTML = `
+      <div class="msg-label">⚠️ Hazard Classified</div>
+      <div class="hazard-badge hazard-${cls}">${cls}</div>
+      <div class="msg-body" style="color:#fca5a5">
+        <strong>${escapeHtml(msg.hazard_type || '')}</strong><br>
+        <span style="color:#a1a1aa">${escapeHtml(msg.statute || '')}</span><br>
+        <span style="color:#d4d4d8;font-size:13px">${escapeHtml(msg.description || '')}</span>
+      </div>
+    `;
+    appendMsg(el);
+  }
+
+  function addActionMsg(msg) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-action';
+    el.innerHTML = `
+      <div class="msg-label">🚨 Action</div>
+      <div class="msg-body" style="color:#fde68a">
+        <strong>${escapeHtml(msg.action || '')}</strong><br>
+        <span style="color:#a1a1aa">${escapeHtml(msg.reason || '')}</span>
+      </div>
+    `;
+    appendMsg(el);
+  }
+
+  function addComplaintMsg(data) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-complaint';
+    el.innerHTML = `
+      <div class="msg-label">📋 Complaint Generated</div>
+      <div class="msg-body" style="color:#86efac">
+        <strong>${escapeHtml(data.violation?.hazard_type || 'Violation')}</strong> —
+        Class ${escapeHtml(data.violation?.hazard_class || '?')}
+        (${escapeHtml(data.violation?.class_label || '')})
+      </div>
+      <div class="complaint-section">
+        <h4>Next Steps</h4>
+        <ul>
+          ${(data.next_steps || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('')}
+        </ul>
+      </div>
+      <pre>${JSON.stringify(data, null, 2)}</pre>
+    `;
+    appendMsg(el);
+  }
+
+  function addSystemMsg(text) {
+    const el = document.createElement('div');
+    el.className = 'msg msg-system';
+    el.innerHTML = `<div class="msg-body">${text}</div>`;
+    appendMsg(el);
+  }
+
+  function appendMsg(el) {
+    const container = document.getElementById('messages');
+    container.appendChild(el);
+    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ─── Camera ────────────────────────
+  let cameraStream = null;
+  let frameInterval = null;
+  let cameraActive = false;
+
+  async function toggleCamera() {
+    if (cameraActive) {
+      stopCamera();
+    } else {
+      await startCamera();
+    }
+  }
+
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      cameraStream = stream;
+      const video = document.getElementById('cameraPreview');
+      video.srcObject = stream;
+      await video.play();
+
+      cameraActive = true;
+      document.getElementById('cameraSection').classList.add('active');
+      document.getElementById('cameraBtn').classList.add('active');
+      document.getElementById('cameraBtn').textContent = '⏹ Stop Camera';
+      document.getElementById('cameraBadge').textContent = '🔴 Sending frames';
+      document.getElementById('cameraBadge').className = 'camera-badge recording';
+
+      addSystemMsg('📷 Camera started — sending frames every 3s');
+
+      // Send a frame every 3 seconds (same as Android app)
+      frameInterval = setInterval(() => captureAndSendFrame(), 3000);
+      // Send first frame immediately
+      setTimeout(() => captureAndSendFrame(), 500);
+
+    } catch (err) {
+      addSystemMsg('❌ Camera access denied: ' + err.message);
+    }
+  }
+
+  function stopCamera() {
+    if (frameInterval) {
+      clearInterval(frameInterval);
+      frameInterval = null;
+    }
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+    }
+    cameraActive = false;
+    document.getElementById('cameraSection').classList.remove('active');
+    document.getElementById('cameraBtn').classList.remove('active');
+    document.getElementById('cameraBtn').textContent = '📷 Camera';
+    document.getElementById('cameraBadge').textContent = '📷 Camera Ready';
+    document.getElementById('cameraBadge').className = 'camera-badge';
+  }
+
+  function captureAndSendFrame() {
+    if (!ws || !connected || !cameraActive) return;
+
+    const video = document.getElementById('cameraPreview');
+    const canvas = document.getElementById('cameraCanvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Convert to base64 JPEG (same format as Android)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    const base64 = dataUrl.split(',')[1];
+
+    // Send as frame message (same protocol as Android)
+    ws.send(JSON.stringify({ type: 'frame', data: base64 }));
+  }
+</script>
+
+</body>
+</html>

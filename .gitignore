@@ -5,8 +5,9 @@ Thumbs.db
 # IDE
 .idea/
 *.iml
+.vscode/
 
-# Mobile application (Android-specific ignores are in mobile_application/.gitignore)
+# ── Mobile Application ──
 mobile_application/local.properties
 mobile_application/app/src/main/assets/service-account.json
 mobile_application/app/google-services.json
@@ -15,3 +16,20 @@ mobile_application/build/
 mobile_application/app/build/
 mobile_application/*.jks
 mobile_application/*.keystore
+
+# ── Web Application ──
+# API keys and secrets (CRITICAL — .env contains real API keys)
+web_application/Tenent_agent/.env
+# Python cache
+web_application/Tenent_agent/__pycache__/
+web_application/Tenent_agent/**/__pycache__/
+*.pyc
+*.pyo
+# Android build artifacts inside web app (42MB of generated files)
+web_application/Tenent_agent/android/
+# Python virtual environments
+web_application/Tenent_agent/venv/
+web_application/Tenent_agent/.venv/
+web_application/Tenent_agent/env/
+# Docker
+web_application/Tenent_agent/*.log
