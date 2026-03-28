@@ -1,9 +1,7 @@
 package com.example.tenantshield.agents.interacting;
 
-import android.content.Context;
-
+import com.example.tenantshield.agents.config.GeminiConfig;
 import com.example.tenantshield.agents.service.GeminiApiService;
-import com.example.tenantshield.agents.service.GeminiLiveApiService;
 import com.example.tenantshield.agents.service.VoiceService;
 import com.example.tenantshield.agents.models.UserInfo;
 import com.example.tenantshield.agents.models.InspectionResult;
@@ -11,21 +9,29 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import android.util.Log;
 
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 /**
- * Interacting Agent — uses Vertex AI Live API (WebSocket) for real-time
- * conversational interaction during info collection,
- * and REST API for result explanation.
- *
- * Falls back to REST API if Live API connection fails.
+ * Interacting Agent — uses Cloud Run proxy (ADC) for Gemini Live API conversations.
+ * Falls back to direct REST API if proxy is unavailable.
  */
 public class InteractingAgent {
 
     private static final String TAG = "InteractingAgent";
+    private static final MediaType JSON = MediaType.parse("application/json");
 
     private static final String COLLECTION_SYSTEM_PROMPT =
             "You are TenantShield, an NYC housing inspector AI agent helping a tenant inspect their apartment.\n\n"
@@ -70,11 +76,10 @@ public class InteractingAgent {
             + "Respond with JSON: {\"response_text\": \"your explanation to speak to the user\"}";
 
     private final GeminiApiService restApiService;
-    private final GeminiLiveApiService liveApiService;
     private final VoiceService voiceService;
-    private final List<String[]> conversationHistory;
-    private boolean useLiveApi = true;
-    private boolean liveApiReceivedResponse = false;
+    private final OkHttpClient httpClient;
+    private String sessionId;
+    private boolean useProxy = true;
     private CollectionCallback activeCallback;
 
     public interface CollectionCallback {
@@ -88,96 +93,152 @@ public class InteractingAgent {
         void onError(String message);
     }
 
-    public InteractingAgent(GeminiApiService restApiService, VoiceService voiceService, Context context) {
+    public InteractingAgent(GeminiApiService restApiService, VoiceService voiceService) {
         this.restApiService = restApiService;
-        this.liveApiService = new GeminiLiveApiService(context);
         this.voiceService = voiceService;
-        this.conversationHistory = new ArrayList<>();
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .build();
     }
 
     /**
-     * Starts the collection conversation.
-     * Attempts Live API first, falls back to REST if it fails.
+     * Starts the collection conversation via Cloud Run proxy.
+     * Falls back to direct REST if proxy is unavailable.
      */
     public void startCollection(CollectionCallback callback) {
-        conversationHistory.clear();
+        activeCallback = callback;
+        sessionId = null;
 
-        if (useLiveApi) {
-            startCollectionWithLiveApi(callback);
+        if (useProxy) {
+            startProxySession(callback);
         } else {
-            startCollectionWithRest(callback);
+            startDirectRest(callback);
         }
     }
 
-    private void startCollectionWithLiveApi(CollectionCallback callback) {
-        liveApiReceivedResponse = false;
-        activeCallback = callback;
+    private void startProxySession(CollectionCallback callback) {
+        JsonObject body = new JsonObject();
+        body.addProperty("system_prompt", COLLECTION_SYSTEM_PROMPT);
 
-        liveApiService.connect(COLLECTION_SYSTEM_PROMPT, new GeminiLiveApiService.LiveSessionListener() {
+        Request request = new Request.Builder()
+                .url(GeminiConfig.getProxySessionStartUrl())
+                .post(RequestBody.create(JSON, body.toString()))
+                .build();
+
+        httpClient.newCall(request).enqueue(new Callback() {
             @Override
-            public void onConnected() {
-                Log.d(TAG, "Live API connected, sending initial message");
-                liveApiService.sendText("Hello, I need to file a complaint about my building.");
+            public void onFailure(Call call, IOException e) {
+                Log.w(TAG, "Proxy unavailable: " + e.getMessage() + " — falling back to REST");
+                useProxy = false;
+                startDirectRest(callback);
             }
 
             @Override
-            public void onTextResponse(String text) {
-                liveApiReceivedResponse = true;
-                Log.d(TAG, "Live response: " + text.substring(0, Math.min(100, text.length())));
-                handleCollectionResponse(text, activeCallback);
-            }
+            public void onResponse(Call call, Response response) throws IOException {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    if (!response.isSuccessful()) {
+                        Log.w(TAG, "Proxy error " + response.code() + " — falling back to REST");
+                        useProxy = false;
+                        startDirectRest(callback);
+                        return;
+                    }
 
-            @Override
-            public void onError(String message) {
-                Log.w(TAG, "Live API error: " + message + " — falling back to REST API");
-                useLiveApi = false;
-                startCollectionWithRest(activeCallback);
-            }
+                    JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+                    sessionId = json.get("session_id").getAsString();
+                    Log.d(TAG, "Proxy session started: " + sessionId);
 
-            @Override
-            public void onClosed() {
-                Log.d(TAG, "Live session closed");
-                // If closed before receiving any response, fall back to REST
-                if (!liveApiReceivedResponse && activeCallback != null) {
-                    Log.w(TAG, "Live API closed without response — falling back to REST API");
-                    useLiveApi = false;
-                    startCollectionWithRest(activeCallback);
+                    // Send initial message
+                    sendProxyMessage("Hello, I need to file a complaint about my building.", callback);
+                } catch (Exception e) {
+                    Log.w(TAG, "Proxy parse error — falling back to REST");
+                    useProxy = false;
+                    startDirectRest(callback);
+                } finally {
+                    response.close();
                 }
             }
         });
     }
 
-    private void startCollectionWithRest(CollectionCallback callback) {
-        conversationHistory.clear();
-        conversationHistory.add(new String[]{"user", "Hello, I need to file a complaint about my building."});
-        sendRestCollectionRequest(callback);
+    private void sendProxyMessage(String message, CollectionCallback callback) {
+        JsonObject body = new JsonObject();
+        body.addProperty("session_id", sessionId);
+        body.addProperty("message", message);
+
+        Request request = new Request.Builder()
+                .url(GeminiConfig.getProxySessionSendUrl())
+                .post(RequestBody.create(JSON, body.toString()))
+                .build();
+
+        httpClient.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.e(TAG, "Proxy send failed: " + e.getMessage());
+                callback.onError("Connection error: " + e.getMessage());
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                try {
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    if (!response.isSuccessful()) {
+                        callback.onError("Server error (" + response.code() + ")");
+                        return;
+                    }
+
+                    JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+                    String responseText = json.get("response_text").getAsString();
+                    Log.d(TAG, "Proxy response: " + responseText.substring(0, Math.min(100, responseText.length())));
+                    handleCollectionResponse(responseText, callback);
+                } catch (Exception e) {
+                    callback.onError("Failed to parse response: " + e.getMessage());
+                } finally {
+                    response.close();
+                }
+            }
+        });
     }
 
     /**
-     * Sends user input through the active connection (Live or REST).
+     * Sends user input through the active connection (proxy or REST).
      */
     public void processUserInput(String userText, CollectionCallback callback) {
         activeCallback = callback;
-        if (useLiveApi && liveApiService.isSessionActive()) {
-            liveApiService.sendText(userText);
+        if (useProxy && sessionId != null) {
+            sendProxyMessage(userText, callback);
         } else {
-            conversationHistory.add(new String[]{"user", userText});
-            sendRestCollectionRequest(callback);
+            // Direct REST fallback uses conversation history
+            List<String[]> history = new ArrayList<>();
+            history.add(new String[]{"user", userText});
+            restApiService.generateContentWithConversation(COLLECTION_SYSTEM_PROMPT, history, new GeminiApiService.GeminiCallback() {
+                @Override
+                public void onSuccess(String responseText) {
+                    handleCollectionResponse(responseText, callback);
+                }
+
+                @Override
+                public void onError(String message) {
+                    callback.onError(message);
+                }
+            });
         }
     }
 
-    private void sendRestCollectionRequest(CollectionCallback callback) {
-        restApiService.generateContentWithConversation(COLLECTION_SYSTEM_PROMPT, conversationHistory, new GeminiApiService.GeminiCallback() {
+    private void startDirectRest(CollectionCallback callback) {
+        List<String[]> history = new ArrayList<>();
+        history.add(new String[]{"user", "Hello, I need to file a complaint about my building."});
+
+        restApiService.generateContentWithConversation(COLLECTION_SYSTEM_PROMPT, history, new GeminiApiService.GeminiCallback() {
             @Override
             public void onSuccess(String responseText) {
-                Log.d(TAG, "REST response: " + responseText.substring(0, Math.min(200, responseText.length())));
-                conversationHistory.add(new String[]{"model", responseText});
+                Log.d(TAG, "REST response: " + responseText.substring(0, Math.min(100, responseText.length())));
                 handleCollectionResponse(responseText, callback);
             }
 
             @Override
             public void onError(String message) {
-                Log.e(TAG, "REST collection error: " + message);
                 callback.onError(message);
             }
         });
@@ -209,7 +270,9 @@ public class InteractingAgent {
                 if (json.has("inspection_request")) info.setInspectionRequest(json.get("inspection_request").getAsString());
                 info.setCollectedAt(System.currentTimeMillis());
 
-                liveApiService.disconnect();
+                // End proxy session
+                if (sessionId != null) endProxySession();
+
                 callback.onVoiceOutput(responseMessage);
                 callback.onUserInfoReady(info);
             } else {
@@ -221,28 +284,77 @@ public class InteractingAgent {
         }
     }
 
+    private void endProxySession() {
+        if (sessionId == null) return;
+        try {
+            Request request = new Request.Builder()
+                    .url(GeminiConfig.getProxySessionEndUrl() + "?session_id=" + sessionId)
+                    .post(RequestBody.create(JSON, "{}"))
+                    .build();
+            httpClient.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) { }
+
+                @Override
+                public void onResponse(Call call, Response response) { response.close(); }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to end proxy session: " + e.getMessage());
+        }
+        sessionId = null;
+    }
+
     /**
-     * Explains inspection results using REST API.
+     * Explains inspection results — uses proxy /generate endpoint.
      */
     public void explainResults(InspectionResult result, ExplanationCallback callback) {
-        String prompt = "Here are the inspection results to explain to the tenant: " + new Gson().toJson(result);
+        String userMessage = "Here are the inspection results to explain to the tenant: " + new Gson().toJson(result);
 
-        restApiService.generateContent(EXPLANATION_SYSTEM_PROMPT, prompt, new GeminiApiService.GeminiCallback() {
+        if (useProxy) {
+            JsonObject body = new JsonObject();
+            body.addProperty("system_prompt", EXPLANATION_SYSTEM_PROMPT);
+            body.addProperty("user_message", userMessage);
+
+            Request request = new Request.Builder()
+                    .url(GeminiConfig.getProxyGenerateUrl())
+                    .post(RequestBody.create(JSON, body.toString()))
+                    .build();
+
+            httpClient.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    // Fallback to direct REST
+                    explainResultsDirect(userMessage, callback);
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    try {
+                        String responseBody = response.body() != null ? response.body().string() : "";
+                        if (!response.isSuccessful()) {
+                            explainResultsDirect(userMessage, callback);
+                            return;
+                        }
+                        JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+                        String text = json.get("response_text").getAsString();
+                        parseExplanation(text, callback);
+                    } catch (Exception e) {
+                        explainResultsDirect(userMessage, callback);
+                    } finally {
+                        response.close();
+                    }
+                }
+            });
+        } else {
+            explainResultsDirect(userMessage, callback);
+        }
+    }
+
+    private void explainResultsDirect(String userMessage, ExplanationCallback callback) {
+        restApiService.generateContent(EXPLANATION_SYSTEM_PROMPT, userMessage, new GeminiApiService.GeminiCallback() {
             @Override
             public void onSuccess(String responseText) {
-                try {
-                    String jsonText = responseText.trim();
-                    if (jsonText.startsWith("```json")) jsonText = jsonText.substring(7);
-                    if (jsonText.startsWith("```")) jsonText = jsonText.substring(3);
-                    if (jsonText.endsWith("```")) jsonText = jsonText.substring(0, jsonText.length() - 3);
-                    jsonText = jsonText.trim();
-
-                    JsonObject json = JsonParser.parseString(jsonText).getAsJsonObject();
-                    String explanationText = json.get("response_text").getAsString();
-                    callback.onExplanationReady(explanationText);
-                } catch (Exception e) {
-                    callback.onExplanationReady(responseText);
-                }
+                parseExplanation(responseText, callback);
             }
 
             @Override
@@ -250,5 +362,21 @@ public class InteractingAgent {
                 callback.onError(message);
             }
         });
+    }
+
+    private void parseExplanation(String responseText, ExplanationCallback callback) {
+        try {
+            String jsonText = responseText.trim();
+            if (jsonText.startsWith("```json")) jsonText = jsonText.substring(7);
+            if (jsonText.startsWith("```")) jsonText = jsonText.substring(3);
+            if (jsonText.endsWith("```")) jsonText = jsonText.substring(0, jsonText.length() - 3);
+            jsonText = jsonText.trim();
+
+            JsonObject json = JsonParser.parseString(jsonText).getAsJsonObject();
+            String explanationText = json.get("response_text").getAsString();
+            callback.onExplanationReady(explanationText);
+        } catch (Exception e) {
+            callback.onExplanationReady(responseText);
+        }
     }
 }

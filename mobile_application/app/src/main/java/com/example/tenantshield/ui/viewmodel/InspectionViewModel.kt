@@ -65,7 +65,7 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         geminiApiService = gemini
         voiceService = voice
 
-        val interactingAgent = InteractingAgent(gemini, voice, context)
+        val interactingAgent = InteractingAgent(gemini, voice)
         val inspectionAgent = InspectionAgent(gemini)
         val filingAgent = FilingAgent(gemini)
 
