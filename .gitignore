@@ -30,6 +30,6 @@ web_application/Tenent_agent/android/
 # Python virtual environments
 web_application/Tenent_agent/venv/
 web_application/Tenent_agent/.venv/
-web_application/Tenent_agent/env/
+web_application/Tenent_agent/.env/
 # Docker
 web_application/Tenent_agent/*.log
