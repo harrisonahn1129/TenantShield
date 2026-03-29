@@ -200,6 +200,110 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
         orchestrator?.cancelSession()
     }
 
+    /** Loads dummy inspection data for testing UI and writes to Firestore */
+    fun loadDummyData() {
+        val dummyUserInfo = UserInfo().apply {
+            tenantName = "John Doe"
+            address = "742 Evergreen Terrace, Bronx, NY 10451"
+            unitNumber = "4B"
+            complaintDescription = "Persistent moisture accumulation on the north-facing wall of the bedroom. Suspected mold growth behind the drywall near the window. Also noticed peeling paint on the ceiling near the bathroom."
+            inspectionRequest = "Check for mold, water damage, and paint condition"
+            collectedAt = System.currentTimeMillis()
+        }
+
+        val dummyFindings = java.util.ArrayList<com.example.tenantshield.agents.models.InspectionFinding>().apply {
+            add(com.example.tenantshield.agents.models.InspectionFinding().apply {
+                category = "HMC-02a mold_large"
+                description = "Dark mold growth observed covering approximately 12 square feet on the north-facing bedroom wall, extending from the window frame to the ceiling corner."
+                severity = com.example.tenantshield.agents.models.InspectionFinding.Severity.HIGH
+                location = "Bedroom, north wall near window"
+                evidence = "Visible black and green mold patches, moisture staining, bubbling paint"
+            })
+            add(com.example.tenantshield.agents.models.InspectionFinding().apply {
+                category = "HMC-16 water_leak_no_electrical"
+                description = "Active water staining on ceiling near bathroom indicating ongoing leak from above unit or roof."
+                severity = com.example.tenantshield.agents.models.InspectionFinding.Severity.MODERATE
+                location = "Bathroom ceiling"
+                evidence = "Brown water stains, damp drywall, paint bubbling"
+            })
+            add(com.example.tenantshield.agents.models.InspectionFinding().apply {
+                category = "HMC-15 paint_peeling"
+                description = "Paint peeling and chipping on bathroom ceiling, non-lead paint based on building age (post-1978)."
+                severity = com.example.tenantshield.agents.models.InspectionFinding.Severity.LOW
+                location = "Bathroom ceiling"
+                evidence = "Flaking paint chips, exposed plaster underneath"
+            })
+        }
+
+        val dummyActions = java.util.ArrayList<String>().apply {
+            add("File HPD complaint for Class B mold violation — landlord has 30 days to remediate")
+            add("Request professional mold assessment to determine full extent behind drywall")
+            add("Document all visible damage with dated photographs")
+            add("Send certified letter to landlord citing NYC HMC §27-2017.1")
+            add("Contact 311 if landlord does not respond within 30 days")
+        }
+
+        val dummyResult = InspectionResult().apply {
+            hazardLevel = InspectionResult.HazardLevel.CLASS_B
+            overallSeverity = "moderate"
+            findings = dummyFindings
+            recommendedActions = dummyActions
+            analyzedImagePaths = java.util.ArrayList()
+            rawAnalysis = "Inspection of Unit 4B at 742 Evergreen Terrace reveals a Class B hazardous condition. " +
+                "The primary concern is widespread mold growth on the north-facing bedroom wall, covering approximately " +
+                "12 square feet. This exceeds the 10 sq ft threshold for Class B classification under NYC HMC §27-2017.1. " +
+                "The mold appears to be caused by persistent moisture intrusion, likely from a failing exterior envelope " +
+                "or plumbing issue in the adjacent unit.\n\n" +
+                "Additionally, water damage was observed on the bathroom ceiling with active staining patterns suggesting " +
+                "an ongoing leak. Paint is peeling in the affected area but the building is post-1978 construction, " +
+                "so lead paint is not a concern (Class A, §27-2013).\n\n" +
+                "The landlord must be notified and has 30 days to correct the Class B violations. If not addressed, " +
+                "the tenant should file a formal HPD complaint."
+            inspectedAt = System.currentTimeMillis()
+        }
+
+        val dummyForm = ComplaintForm().apply {
+            documentId = "TS-20260328-001"
+            filingDate = "MARCH 28, 2026"
+            address = "742 Evergreen Terrace, Bronx, NY 10451"
+            tenantName = "Doe, John"
+            natureOfComplaint = "Widespread mold growth exceeding 10 square feet on bedroom wall in violation of " +
+                "NYC Housing Maintenance Code §27-2017.1 (Class B). Additional water damage and paint deterioration " +
+                "observed on bathroom ceiling per §27-2005 and §27-2013."
+            hazardClass = "CLASS B"
+            hazardDescription = "Mold covering approximately 12 sq ft on north-facing bedroom wall with active " +
+                "moisture intrusion. Water staining on bathroom ceiling indicating ongoing leak. Peeling paint on ceiling."
+            inspectorSignature = "TenantShield AI Inspector"
+            verificationToken = "TS-VRF-A7B3C9D1E5F2"
+            generatedAt = System.currentTimeMillis()
+            evidenceImagePaths = java.util.ArrayList()
+        }
+
+        // Update UI state
+        _uiState.update {
+            it.copy(
+                pipelineState = com.example.tenantshield.agents.orchestrator.OrchestratorState.COMPLETE,
+                userInfo = dummyUserInfo,
+                inspectionResult = dummyResult,
+                complaintForm = dummyForm
+            )
+        }
+
+        // Save to Firestore if logged in
+        val userId = authService.getUid()
+        if (userId != null) {
+            firestoreService.saveUserProfile(userId, dummyUserInfo, object : FirestoreService.FirestoreCallback {
+                override fun onSuccess() { android.util.Log.d("InspectionVM", "Dummy profile saved") }
+                override fun onError(message: String) { android.util.Log.e("InspectionVM", "Dummy profile save failed: $message") }
+            })
+            firestoreService.saveInspectionRecord(userId, dummyResult, dummyForm, emptyList(),
+                object : FirestoreService.FirestoreCallback {
+                    override fun onSuccess() { android.util.Log.d("InspectionVM", "Dummy inspection saved to Firestore") }
+                    override fun onError(message: String) { android.util.Log.e("InspectionVM", "Dummy inspection save failed: $message") }
+                })
+        }
+    }
+
     /** Saves the completed inspection to Firebase (user profile, images, inspection record) */
     private fun saveInspectionToFirebase() {
         val userId = authService.getUid() ?: return

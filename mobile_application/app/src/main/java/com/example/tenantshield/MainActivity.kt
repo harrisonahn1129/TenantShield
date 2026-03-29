@@ -205,7 +205,24 @@ fun TenantShieldApp(inspectionViewModel: InspectionViewModel = viewModel()) {
                 }
             }
         },
-        floatingActionButton = {}
+        floatingActionButton = {
+            // TODO: Remove this demo button before production
+            if (isLoggedIn && currentDestination == AppDestination.HOME) {
+                Button(
+                    onClick = {
+                        inspectionViewModel.loadDummyData()
+                        navigateTo(AppDestination.REPORTS)
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2ECC71),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("DEMO", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
     ) { innerPadding ->
         when (currentDestination) {
             AppDestination.HOME -> HomeScreen(

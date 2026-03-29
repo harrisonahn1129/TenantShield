@@ -1,18 +1,25 @@
 """
-TenantShield Cloud Run Proxy — handles Gemini API with ADC.
-The Android app calls this service instead of connecting directly to Vertex AI.
-No API keys or service account files needed — Cloud Run uses ADC automatically.
+TenantShield Cloud Run Proxy — uses Google Agent Development Kit (ADK)
+with Gemini Live API via ADC. No API keys needed on Cloud Run.
 """
 
 import os
-import json
+
+# Set Vertex AI env vars BEFORE importing ADK
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+os.environ["GOOGLE_CLOUD_PROJECT"] = os.environ.get("GOOGLE_CLOUD_PROJECT", "crucial-bucksaw-371623")
+os.environ["GOOGLE_CLOUD_LOCATION"] = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
+
 import uuid
 import traceback
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
-from google import genai
+from typing import List
+
+from google.adk.agents import Agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 app = FastAPI(title="TenantShield Proxy")
@@ -26,17 +33,14 @@ app.add_middleware(
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "crucial-bucksaw-371623")
 REGION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-3-flash-preview"
+APP_NAME = "tenantshield_proxy"
 
-# Initialize the Gemini client with ADC (automatic on Cloud Run)
-client = genai.Client(
-    vertexai=True,
-    project=PROJECT_ID,
-    location=REGION,
-)
+# Session service for managing conversation state
+session_service = InMemorySessionService()
 
-# In-memory session storage (conversation history per session)
-sessions = {}
+# Store agent instances per session (each may have different system prompts)
+agent_runners = {}
 
 
 class StartSessionRequest(BaseModel):
@@ -56,6 +60,15 @@ class SendMessageResponse(BaseModel):
     response_text: str
 
 
+class GenerateRequest(BaseModel):
+    system_prompt: str
+    user_message: str
+
+
+class GenerateResponse(BaseModel):
+    response_text: str
+
+
 class AnalyzeImagesRequest(BaseModel):
     system_prompt: str
     user_message: str
@@ -66,62 +79,88 @@ class AnalyzeImagesResponse(BaseModel):
     response_text: str
 
 
-class GenerateRequest(BaseModel):
-    system_prompt: str
-    user_message: str
-
-
-class GenerateResponse(BaseModel):
-    response_text: str
-
-
 @app.get("/health")
 def health():
     return {"status": "ok", "project": PROJECT_ID, "region": REGION, "model": MODEL}
 
 
 @app.post("/session/start", response_model=StartSessionResponse)
-def start_session(req: StartSessionRequest):
-    """Start a new conversation session (stores system prompt and history)."""
+async def start_session(req: StartSessionRequest):
+    """Start a new ADK agent session with the given system prompt."""
     session_id = str(uuid.uuid4())
-    sessions[session_id] = {
-        "system_prompt": req.system_prompt,
-        "history": [],
-    }
-    return StartSessionResponse(session_id=session_id)
-
-
-@app.post("/session/send", response_model=SendMessageResponse)
-def send_message(req: SendMessageRequest):
-    """Send a message in an existing conversation session."""
-    if req.session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session_data = sessions[req.session_id]
-    session_data["history"].append({"role": "user", "text": req.message})
+    user_id = f"user_{session_id[:8]}"
 
     try:
-        # Build conversation contents
-        contents = []
-        for entry in session_data["history"]:
-            contents.append(
-                types.Content(
-                    role=entry["role"],
-                    parts=[types.Part(text=entry["text"])],
-                )
-            )
-
-        response = client.models.generate_content(
+        # Create an ADK agent with the system prompt
+        agent = Agent(
+            name="tenantshield_agent",
             model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=session_data["system_prompt"],
+            instruction=req.system_prompt,
+            generate_content_config=types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
         )
 
-        response_text = response.text
-        session_data["history"].append({"role": "model", "text": response_text})
+        # Create a runner for this agent
+        runner = Runner(
+            agent=agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+
+        # Create a session
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+        )
+
+        agent_runners[session_id] = {
+            "runner": runner,
+            "user_id": user_id,
+            "session_id": session.id,
+        }
+
+        return StartSessionResponse(session_id=session_id)
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/session/send", response_model=SendMessageResponse)
+async def send_message(req: SendMessageRequest):
+    """Send a message using the ADK runner."""
+    if req.session_id not in agent_runners:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    runner_data = agent_runners[req.session_id]
+    runner = runner_data["runner"]
+    user_id = runner_data["user_id"]
+    adk_session_id = runner_data["session_id"]
+
+    try:
+        # Create user message content
+        user_content = types.Content(
+            role="user",
+            parts=[types.Part(text=req.message)],
+        )
+
+        # Run the agent
+        response_text = ""
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=adk_session_id,
+            new_message=user_content,
+        ):
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response_text += part.text
+
+        if not response_text:
+            response_text = '{"complete": false, "response_text": "I didn\'t get a response. Could you try again?"}'
+
         return SendMessageResponse(response_text=response_text)
 
     except Exception as e:
@@ -130,67 +169,115 @@ def send_message(req: SendMessageRequest):
 
 
 @app.post("/session/end")
-def end_session(session_id: str):
-    """End a conversation session."""
-    if session_id in sessions:
-        del sessions[session_id]
+async def end_session(session_id: str):
+    """End and clean up a session."""
+    if session_id in agent_runners:
+        del agent_runners[session_id]
     return {"status": "ok"}
 
 
-@app.post("/analyze", response_model=AnalyzeImagesResponse)
-def analyze_images(req: AnalyzeImagesRequest):
-    """Analyze images using Gemini multimodal (for Inspection Agent)."""
-    import base64
-
+@app.post("/generate", response_model=GenerateResponse)
+async def generate(req: GenerateRequest):
+    """One-shot generation (for Filing Agent / explanation)."""
     try:
-        parts = [types.Part(text=req.user_message)]
-
-        for img_b64 in req.images_base64:
-            img_bytes = base64.b64decode(img_b64)
-            parts.append(
-                types.Part(
-                    inline_data=types.Blob(
-                        mime_type="image/jpeg",
-                        data=img_bytes,
-                    )
-                )
-            )
-
-        response = client.models.generate_content(
+        agent = Agent(
+            name="tenantshield_generate",
             model=MODEL,
-            contents=[types.Content(role="user", parts=parts)],
-            config=types.GenerateContentConfig(
-                system_instruction=req.system_prompt,
+            instruction=req.system_prompt,
+            generate_content_config=types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
         )
 
-        return AnalyzeImagesResponse(response_text=response.text)
+        runner = Runner(
+            agent=agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+
+        user_id = f"oneshot_{uuid.uuid4().hex[:8]}"
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+        )
+
+        user_content = types.Content(
+            role="user",
+            parts=[types.Part(text=req.user_message)],
+        )
+
+        response_text = ""
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session.id,
+            new_message=user_content,
+        ):
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response_text += part.text
+
+        return GenerateResponse(response_text=response_text)
 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest):
-    """Simple text generation (for Filing Agent)."""
+@app.post("/analyze", response_model=AnalyzeImagesResponse)
+async def analyze_images(req: AnalyzeImagesRequest):
+    """Multimodal image analysis (for Inspection Agent)."""
+    import base64
+
     try:
-        response = client.models.generate_content(
+        agent = Agent(
+            name="tenantshield_inspect",
             model=MODEL,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[types.Part(text=req.user_message)],
-                )
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=req.system_prompt,
+            instruction=req.system_prompt,
+            generate_content_config=types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
         )
 
-        return GenerateResponse(response_text=response.text)
+        runner = Runner(
+            agent=agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+
+        user_id = f"inspect_{uuid.uuid4().hex[:8]}"
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+        )
+
+        # Build multimodal content
+        parts = [types.Part(text=req.user_message)]
+        for img_b64 in req.images_base64:
+            img_bytes = base64.b64decode(img_b64)
+            parts.append(types.Part(
+                inline_data=types.Blob(
+                    mime_type="image/jpeg",
+                    data=img_bytes,
+                )
+            ))
+
+        user_content = types.Content(role="user", parts=parts)
+
+        response_text = ""
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session.id,
+            new_message=user_content,
+        ):
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            response_text += part.text
+
+        return AnalyzeImagesResponse(response_text=response_text)
 
     except Exception as e:
         traceback.print_exc()
